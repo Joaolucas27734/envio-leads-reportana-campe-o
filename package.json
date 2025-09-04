@@ -1,0 +1,13 @@
+{
+  "name": "envio-leads-reportana",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "googleapis": "^120.0.0",
+    "axios": "^1.6.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}
