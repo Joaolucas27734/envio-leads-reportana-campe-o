@@ -1,69 +1,59 @@
-import { google } from "googleapis";
-import axios from "axios";
+const { google } = require('googleapis');
+const axios = require('axios');
 
-// Configurações da planilha
+const WEBHOOK_URL = "https://app.reportana.com/webhooks/workflows/138790?token=EL4ug83uNxmvTxiGDahMWQ6QJaAdmRnM";
 const SPREADSHEET_ID = "1UD2_Q9oua4OCqYls-Is4zVKwTc9LjucLjPUgmVmyLBc";
 const SHEET_NAME = "Campeão";
 
-// Webhook da Reportana (variável de ambiente)
-const WEBHOOK_URL = process.env.WEBHOOK_REPORTANA;
-
-// JSON da Service Account (variável de ambiente)
+// Pega a Service Account do Render
 const serviceAccount = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
 
-// Autenticação com Google Sheets
-const auth = new google.auth.GoogleAuth({
-  credentials: serviceAccount,
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
-
 async function main() {
-  try {
-    const client = await auth.getClient();
-    const sheets = google.sheets({ version: "v4", auth: client });
+  const auth = new google.auth.GoogleAuth({
+    credentials: serviceAccount,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  });
 
-    // Lê todos os dados da aba Campeão
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: SPREADSHEET_ID,
-      range: SHEET_NAME,
-    });
+  const sheets = google.sheets({ version: "v4", auth });
 
-    const rows = res.data.values || [];
+  // Pega os dados da aba
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${SHEET_NAME}!A:I` // Ajuste se precisar
+  });
 
-    for (let i = 1; i < rows.length; i++) { // Começa da linha 2
-      const row = rows[i];
-      const nome = row[0];
-      const email = row[1];
-      const telefone = row[2];
-      const statusG = row[6]; // Coluna G → “X”
-      const statusI = row[8]; // Coluna I → “Enviado”
+  const rows = res.data.values;
 
-      // Se tiver X na coluna G e não estiver enviado
-      if (statusG?.toUpperCase() === "X" && statusI !== "Enviado") {
-        const lead = { nome, email, telefone };
+  if (!rows || rows.length === 0) return console.log("Nenhum lead encontrado.");
 
-        try {
-          // Envia para o webhook
-          await axios.post(WEBHOOK_URL, lead);
-          console.log("Lead enviado:", lead);
+  for (let i = 1; i < rows.length; i++) { // ignora o header
+    const row = rows[i];
+    const toSend = row[7]; // Coluna H (marcada com "X")
+    const sent = row[8]; // Coluna I ("Enviado")
 
-          // Marca "Enviado" na coluna I
-          await sheets.spreadsheets.values.update({
-            spreadsheetId: SPREADSHEET_ID,
-            range: `${SHEET_NAME}!I${i + 1}`,
-            valueInputOption: "RAW",
-            requestBody: { values: [["Enviado"]] },
-          });
-        } catch (err) {
-          console.log("Erro ao enviar lead:", err.message);
-        }
+    if (toSend === "X" && sent !== "Enviado") {
+      const lead = {
+        nome: row[0],
+        email: row[1],
+        telefone: row[2]
+      };
+
+      try {
+        await axios.post(WEBHOOK_URL, lead);
+        console.log(`Lead enviado: ${lead.email}`);
+
+        // Marca como enviado
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: SPREADSHEET_ID,
+          range: `${SHEET_NAME}!I${i+1}`,
+          valueInputOption: "RAW",
+          requestBody: { values: [["Enviado"]] }
+        });
+      } catch (err) {
+        console.error(`Erro ao enviar lead ${lead.email}:`, err.message);
       }
     }
-    console.log("Processo concluído!");
-  } catch (err) {
-    console.error("Erro geral:", err.message);
   }
 }
 
-// Executa o script
-main();
+main().catch(console.error);
